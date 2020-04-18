@@ -130,13 +130,13 @@ public abstract class AbstractAutoProxyCreator extends ProxyProcessorSupport
 
 	@Nullable
 	private BeanFactory beanFactory;
-
+	//目标原是被代理的target(目标对象)实例
 	private final Set<String> targetSourcedBeans = Collections.newSetFromMap(new ConcurrentHashMap<>(16));
 
 	private final Map<Object, Object> earlyProxyReferences = new ConcurrentHashMap<>(16);
 
 	private final Map<Object, Class<?>> proxyTypes = new ConcurrentHashMap<>(16);
-
+	//缓存？
 	private final Map<Object, Boolean> advisedBeans = new ConcurrentHashMap<>(256);
 
 
@@ -294,8 +294,12 @@ public abstract class AbstractAutoProxyCreator extends ProxyProcessorSupport
 	@Override
 	public Object postProcessAfterInitialization(@Nullable Object bean, String beanName) {
 		if (bean != null) {
+			// 获取当前bean的key：如果beanName不为空，则以beanName为key，如果为FactoryBean类型，
+			// 前面还会添加&符号，如果beanName为空，则以当前bean对应的class为key
 			Object cacheKey = getCacheKey(bean.getClass(), beanName);
+			// 判断当前bean是否正在被代理，如果正在被代理则不进行封装
 			if (this.earlyProxyReferences.remove(cacheKey) != bean) {
+				//对目标bean的封装
 				return wrapIfNecessary(bean, beanName, cacheKey);
 			}
 		}
@@ -332,21 +336,35 @@ public abstract class AbstractAutoProxyCreator extends ProxyProcessorSupport
 	 * @return a proxy wrapping the bean, or the raw bean instance as-is
 	 */
 	protected Object wrapIfNecessary(Object bean, String beanName, Object cacheKey) {
+		// 判断当前bean是否在TargetSource缓存中存在，如果存在，则直接返回当前bean。这里进行如此判断的
+		// 原因是在上文中，我们讲解了如何通过自己声明的TargetSource进行目标bean的封装，在封装之后其实
+		// 就已经对封装之后的bean进行了代理，并且添加到了targetSourcedBeans缓存中。因而这里判断得到
+		// 当前缓存中已经存在当前bean，则说明该bean已经被代理过，这样就可以直接返回当前bean。
 		if (StringUtils.hasLength(beanName) && this.targetSourcedBeans.contains(beanName)) {
 			return bean;
 		}
+		// 这里advisedBeans缓存了已经进行了代理的bean，如果缓存中存在，则可以直接返回
 		if (Boolean.FALSE.equals(this.advisedBeans.get(cacheKey))) {
 			return bean;
 		}
+		// 1。这里isInfrastructureClass()用于判断当前bean是否为Spring系统自带的bean，自带的bean是
+		//不用进行代理的；
+		//2。shouldSkip()则用于判断当前bean是否应该被略过
+		//3。其中isInfrastructureClass子类对其进行了重写，在判断是是否为Advice、Pointcut、Advisor、
+		// AopInfrastructureBean还有Aspect和属性是否ajc$开头
+		//4。shouldSkip主要逻辑就是判断是否以String ORIGINAL_INSTANCE_SUFFIX = ".ORIGINAL"结尾
 		if (isInfrastructureClass(bean.getClass()) || shouldSkip(bean.getClass(), beanName)) {
+			// 对当前bean进行缓存
 			this.advisedBeans.put(cacheKey, Boolean.FALSE);
 			return bean;
 		}
-
-		// Create proxy if we have advice.
+		// 获取当前bean的Advices和Advisors
+		//1。调用其子类AbstractAdvisorAutoProxyCreator的方法getAdvicesAndAdvisorsForBean
 		Object[] specificInterceptors = getAdvicesAndAdvisorsForBean(bean.getClass(), beanName, null);
 		if (specificInterceptors != DO_NOT_PROXY) {
+			//对当前bean的代理状态进行缓存，这是干什么？
 			this.advisedBeans.put(cacheKey, Boolean.TRUE);
+			// 根据获取到的Advices和Advisors为当前bean生成代理对象
 			Object proxy = createProxy(
 					bean.getClass(), beanName, specificInterceptors, new SingletonTargetSource(bean));
 			this.proxyTypes.put(cacheKey, proxy.getClass());

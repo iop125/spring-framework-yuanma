@@ -223,21 +223,29 @@ public abstract class AopUtils {
 	 */
 	public static boolean canApply(Pointcut pc, Class<?> targetClass, boolean hasIntroductions) {
 		Assert.notNull(pc, "Pointcut must not be null");
+		// 获取当前Advisor的CalssFilter，并且调用其matches()方法判断当前切点表达式是否与目标bean匹配，
+		// 这里ClassFilter指代的切点表达式主要是当前切面类上使用的@Aspect注解中所指代的切点表达式
 		if (!pc.getClassFilter().matches(targetClass)) {
 			return false;
 		}
-
+		// 判断如果当前Advisor所指代的方法的切点表达式如果是对任意方法都放行，则直接返回
 		MethodMatcher methodMatcher = pc.getMethodMatcher();
 		if (methodMatcher == MethodMatcher.TRUE) {
 			// No need to iterate the methods if we're matching any method anyway...
 			return true;
 		}
+		// 这里将MethodMatcher强转为IntroductionAwareMethodMatcher类型的原因在于，
+		// 如果目标类不包含Introduction类型的Advisor，那么使用
+		// IntroductionAwareMethodMatcher.matches()方法进行匹配判断时可以提升匹配的效率，
+		// 其会判断目标bean中没有使用Introduction织入新的方法，则可以使用该方法进行静态匹配，从而提升效率
+		// 因为Introduction类型的Advisor可以往目标类中织入新的方法，新的方法也可能是被AOP环绕的方法
 
 		IntroductionAwareMethodMatcher introductionAwareMethodMatcher = null;
 		if (methodMatcher instanceof IntroductionAwareMethodMatcher) {
 			introductionAwareMethodMatcher = (IntroductionAwareMethodMatcher) methodMatcher;
 		}
 
+		// 获取目标类的所有接口
 		Set<Class<?>> classes = new LinkedHashSet<>();
 		if (!Proxy.isProxyClass(targetClass)) {
 			classes.add(ClassUtils.getUserClass(targetClass));
@@ -245,8 +253,12 @@ public abstract class AopUtils {
 		classes.addAll(ClassUtils.getAllInterfacesForClassAsSet(targetClass));
 
 		for (Class<?> clazz : classes) {
+			// 获取目标接口的所有方法
 			Method[] methods = ReflectionUtils.getAllDeclaredMethods(clazz);
+
 			for (Method method : methods) {
+				// 如果当前MethodMatcher也是IntroductionAwareMethodMatcher类型，则使用该类型
+				// 的方法进行匹配，从而达到提升效率的目的；否则使用MethodMatcher.matches()方法进行匹配
 				if (introductionAwareMethodMatcher != null ?
 						introductionAwareMethodMatcher.matches(method, targetClass, hasIntroductions) :
 						methodMatcher.matches(method, targetClass)) {
@@ -283,8 +295,8 @@ public abstract class AopUtils {
 	public static boolean canApply(Advisor advisor, Class<?> targetClass, boolean hasIntroductions) {
 		if (advisor instanceof IntroductionAdvisor) {
 			return ((IntroductionAdvisor) advisor).getClassFilter().matches(targetClass);
-		}
-		else if (advisor instanceof PointcutAdvisor) {
+	}
+		else if (advisor instanceof PointcutAdvisor) {//判断切入点
 			PointcutAdvisor pca = (PointcutAdvisor) advisor;
 			return canApply(pca.getPointcut(), targetClass, hasIntroductions);
 		}
@@ -307,6 +319,7 @@ public abstract class AopUtils {
 			return candidateAdvisors;
 		}
 		List<Advisor> eligibleAdvisors = new ArrayList<>();
+		//过滤
 		for (Advisor candidate : candidateAdvisors) {
 			if (candidate instanceof IntroductionAdvisor && canApply(candidate, clazz)) {
 				eligibleAdvisors.add(candidate);
